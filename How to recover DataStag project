@@ -1,0 +1,38 @@
+There is a limiation when concurrent projects creation actions happen. Whatever one user create multiple projects or different user create projects at the same time.
+
+The behavior in the UI is "Project has created successfully" reported but the new created project is not shown in Project list.
+
+Explaination:
+When the user initiates project-creation via Web-UI, it goes to "Jetty-process", which in turn constructs the required "dsengine-command-string" & spawns a separate process and executes that comment. At this point, we see the following messages in the Jetty-log-file: "/opt/IBM/InformationServer/ASBNode/CognitiveDesignerEngine/dfdEngineServer.log":
+......................................................
+2020/06/12 03:54:20,819 1052360 [INFO ] [qtp1720213621-41] cognition.runtime.DSCognitionProject cognition.helper.RtmonLogEngine.logInfo - Creating project using ZENCREATE
+2020/06/12 03:54:20,820 1052361 [INFO ] [qtp1720213621-41] cognition.runtime.DSCognitionProject cognition.helper.RtmonLogEngine.logInfo - create command cd /opt/IBM/InformationServer/Server/Projects;cd ../DSEngine;. ./dsenv;./bin/uvsh "RUN BP DSR_QUICKADD.B NONE test1 /opt/IBM/InformationServer/Server/Projects/test1 ZENCREATE"
+......................................................
+
+Root Cause:
+The root-cause of the issue is because "Jetty-process" failed to run the project-creation-command & hence, the last-log-entry in the jetty-log-file: is the "create command ....." shown above. We encountered such scenario, when multiple "project-create" commands are issued (one after another or at the same time), either by the same user (or) multiple-users. However, if we create projects one at a time, wait till it is created, connect to that project and then try creating another project (if required), then we did not encounter any issue.
+
+So, the bottom-line is, the Jetty-process is hitting some kind of "resouce-contention" (i.e., something similar to "deadlock" in databases) & not executing the required commands, resulting in project-creation failures. In such situations, restarting "Jetty-process" will abort the exiting transactions (which are resulting in resource-contention or deadlock...etc) & start the Jetty-process cleanly. Re-starting of Jetty-process does NOT cause any "loss of data". So, restarting Jetty-process doesn't cause any problem. (In fact, we recommend "jetty-restart", whenever WAS-ND/LWAS is restarted for any reason).
+
+Kiran explained that, we have long-time plan to resolve the concurrent-project-creation issue in future-releases. But, the general recommendation now is to create projects one at a time, wait till it is created, connect to that project and then try creating another project (if required).
+
+Workaround:
+If the customer encounters a situation where they see the project-creation-command as the last-entry in the Jetty-log & that process is not running (if they see via "ps -ef | grep QUICKADD"), then user can consider restarting Jetty-process, as a workaround.
+
+Restarting Jetty, would NOT cause any loss of data (nor any problem with any of the subsequent-operations), but only aborts the existing (i.e., the ones which are "hanging") transactions & starts clean. FYI.
+
+(1)oc login -u ocadmin
+
+(2)kubectl exec -it is-en-conductor-0 bash
+
+(3)cd /opt/IBM/InformationServer/ASBNode/CognitiveDesignerEngine/
+
+(4)./stopCognitiveDesignerServer.sh
+
+(5) cd /opt/IBM/InformationServer/Server/Projects/
+
+(6) rm -rf
+
+(7) cd /opt/IBM/InformationServer/ASBNode/CognitiveDesignerEngine/
+
+(8) ./startCognitiveDesignerServer.sh
